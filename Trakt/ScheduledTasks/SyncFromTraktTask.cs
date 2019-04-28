@@ -24,6 +24,7 @@ using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
+using Trakt.Api.DataContracts.Users.Lists;
 
 namespace Trakt.ScheduledTasks
 {
@@ -321,10 +322,19 @@ namespace Trakt.ScheduledTasks
         {
             return results.Where(i => IsMatch(item, i.movie)).ToList();
         }
+        public static IEnumerable<TraktListElement> FindMatches(BaseItem item, IEnumerable<TraktListElement> results)
+        {
+            return results.Where(i => IsMatch(item, i.movie)).ToList();
+        }
 
         public static bool IsMatch(BaseItem item, TraktMovie movie)
         {
             var imdb = item.GetProviderId(MetadataProviders.Imdb);
+
+            if(movie == null)
+            {
+                return false;
+            }
 
             if (!string.IsNullOrWhiteSpace(imdb) &&
                 string.Equals(imdb, movie.ids.imdb, StringComparison.OrdinalIgnoreCase))

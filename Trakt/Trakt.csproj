@@ -20,4 +20,8 @@
     <PackageReference Include="System.Memory" Version="4.5.1" />
   </ItemGroup>
 
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="xcopy &quot;$(TargetPath)&quot; &quot;%25AppData%25\Local\jellyfin\plugins\Trakt\&quot; /y" />
+  </Target>
+
 </Project>

@@ -21,6 +21,8 @@ using Trakt.Helpers;
 using Trakt.Model;
 using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
+using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Model.Playlists;
 
 namespace Trakt.ScheduledTasks
 {
@@ -43,6 +45,8 @@ namespace Trakt.ScheduledTasks
 
         private readonly ILibraryManager _libraryManager;
 
+        private readonly IPlaylistManager _playlistManager;
+
         public SyncLibraryTask(
             ILoggerFactory logger,
             IJsonSerializer jsonSerializer,
@@ -51,13 +55,15 @@ namespace Trakt.ScheduledTasks
             IHttpClient httpClient,
             IServerApplicationHost appHost,
             IFileSystem fileSystem,
-            ILibraryManager libraryManager)
+            ILibraryManager libraryManager,
+            IPlaylistManager playlistManager)
         {
             _jsonSerializer = jsonSerializer;
             _userManager = userManager;
             _userDataManager = userDataManager;
             _libraryManager = libraryManager;
             _logger = logger.CreateLogger("Trakt");
+            _playlistManager = playlistManager;
             _traktApi = new TraktApi(jsonSerializer, _logger, httpClient, appHost, userDataManager, fileSystem);
         }
 
@@ -115,8 +121,40 @@ namespace Trakt.ScheduledTasks
             ISplittableProgress<double> progress,
             CancellationToken cancellationToken)
         {
-            await SyncMovies(user, traktUser, progress.Split(2), cancellationToken).ConfigureAwait(false);
-            await SyncShows(user, traktUser, progress.Split(2), cancellationToken).ConfigureAwait(false);
+            await SyncMovies(user, traktUser, progress.Split(3), cancellationToken).ConfigureAwait(false);
+            await SyncShows(user, traktUser, progress.Split(3), cancellationToken).ConfigureAwait(false);
+            await SyncPlaylists(user, traktUser, progress.Split(3), cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task SyncPlaylists(User user, TraktUser traktUser, ISplittableProgress<double> splittableProgress, CancellationToken cancellationToken)
+        {
+            var userPlaylists = await _traktApi.SendGetUsersCustomLists(traktUser).ConfigureAwait(false);
+            foreach (var list in userPlaylists)
+            {
+                var existingList = _playlistManager.GetPlaylists(user.Id).FirstOrDefault(x => x.MediaType == MediaType.Video && x.Name == list.name);
+                if (existingList == null)
+                {
+                    var request = new PlaylistCreationRequest()
+                    {
+                        MediaType = MediaType.Video,
+                        Name = list.name,
+                        UserId = user.Id
+                    };
+                    var listCreationResult = await _playlistManager.CreatePlaylist(request);
+                    existingList = _playlistManager.GetPlaylists(user.Id).FirstOrDefault(x => x.MediaType == MediaType.Video && x.Name == list.name);
+                }
+                var listElements = await _traktApi.SendGetUsersCustomListElements(traktUser, list.ids.slug);
+                var libraryMovies = GetLibraryMovies(user, traktUser);
+                foreach (var child in libraryMovies)
+                {
+                    var libraryMovie = child as Movie;
+                    var collectedMatchingMovies = SyncFromTraktTask.FindMatches(libraryMovie, listElements);
+                    if (collectedMatchingMovies.Any() && !existingList.GetRecursiveChildren(user).Any(x => x.FileNameWithoutExtension == libraryMovie.FileNameWithoutExtension))
+                    {
+                        _playlistManager.AddToPlaylist(existingList.Id.ToString(), new List<Guid>() { libraryMovie.Id }, user.Id);
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -134,19 +172,7 @@ namespace Trakt.ScheduledTasks
              */
             var traktWatchedMovies = await _traktApi.SendGetAllWatchedMoviesRequest(traktUser).ConfigureAwait(false);
             var traktCollectedMovies = await _traktApi.SendGetAllCollectedMoviesRequest(traktUser).ConfigureAwait(false);
-            var libraryMovies =
-                _libraryManager.GetItemList(
-                        new InternalItemsQuery(user)
-                        {
-                            IncludeItemTypes = new[] { typeof(Movie).Name },
-                            IsVirtualItem = false,
-                            OrderBy = new []
-                            {
-                                new ValueTuple<string, SortOrder>(ItemSortBy.SortName, SortOrder.Ascending)
-                            }
-                        })
-                    .Where(x => _traktApi.CanSync(x, traktUser))
-                    .ToList();
+            List<BaseItem> libraryMovies = GetLibraryMovies(user, traktUser);
             var collectedMovies = new List<Movie>();
             var playedMovies = new List<Movie>();
             var unplayedMovies = new List<Movie>();
@@ -215,6 +241,22 @@ namespace Trakt.ScheduledTasks
 
             // send movies to mark unwatched
             await SendMoviePlaystateUpdates(false, traktUser, unplayedMovies, progress.Split(4), cancellationToken).ConfigureAwait(false);
+        }
+
+        private List<BaseItem> GetLibraryMovies(User user, TraktUser traktUser)
+        {
+            return _libraryManager.GetItemList(
+                        new InternalItemsQuery(user)
+                        {
+                            IncludeItemTypes = new[] { typeof(Movie).Name },
+                            IsVirtualItem = false,
+                            OrderBy = new[]
+                            {
+                                new ValueTuple<string, SortOrder>(ItemSortBy.SortName, SortOrder.Ascending)
+                            }
+                        })
+                    .Where(x => _traktApi.CanSync(x, traktUser))
+                    .ToList();
         }
 
         private async Task SendMovieCollectionUpdates(
@@ -305,7 +347,7 @@ namespace Trakt.ScheduledTasks
                         {
                             IncludeItemTypes = new[] { typeof(Episode).Name },
                             IsVirtualItem = false,
-                            OrderBy = new []
+                            OrderBy = new[]
                             {
                                 new ValueTuple<string, SortOrder>(ItemSortBy.SeriesSortName, SortOrder.Ascending)
                             }

@@ -12,6 +12,7 @@ using System.IO;
 using System.Net;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Model.Serialization;
 using Trakt.Api.DataContracts;
 using Trakt.Api.DataContracts.BaseModel;
@@ -654,6 +655,35 @@ namespace Trakt.Api
             }
         }
 
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="traktUser"></param>
+        /// <returns></returns>
+        public async Task<List<TraktPlaylist>> SendGetUsersCustomLists(TraktUser traktUser)
+        {
+            using (var response = await GetFromTrakt(TraktUris.UsersCustomLists, traktUser).ConfigureAwait(false))
+            {
+                return _jsonSerializer.DeserializeFromStream<List<TraktPlaylist>>(response);
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="traktUser"></param>
+        /// <returns></returns>
+        public async Task<List<TraktListElement>> SendGetUsersCustomListElements(TraktUser traktUser, string listName)
+        {
+            var url = TraktUris.CustomListsElements.Replace("%listId%", listName);
+            using (var response = await GetFromTrakt(url, traktUser).ConfigureAwait(false))
+            {
+                return _jsonSerializer.DeserializeFromStream<List<TraktListElement>>(response);
+            }
+        }
+
+
         /// <summary>
         /// 
         /// </summary>
@@ -975,6 +1005,7 @@ namespace Trakt.Api
             {
                 await SetRequestHeaders(options, traktUser).ConfigureAwait(false);
             }
+
 
             await Plugin.Instance.TraktResourcePool.WaitAsync(cancellationToken).ConfigureAwait(false);
 

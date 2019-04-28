@@ -35,6 +35,9 @@
         public static readonly string RecommendationsMovies = $@"{BaseUrl}/recommendations/movies";
         public static readonly string RecommendationsShows = $@"{BaseUrl}/recommendations/shows";
 
+        // Lists
+        public static readonly string UsersCustomLists = $@"{BaseUrl}/users/me/lists";
+        public static readonly string CustomListsElements = $@"{BaseUrl}/users/me/lists/%listId%/items";
         #endregion
 
         #region DELETE 
